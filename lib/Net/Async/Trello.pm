@@ -136,26 +136,69 @@ sub card {
 
 =head2 search
 
-Performs a search.
+Description performs a search for Trello objects by string
+see L<https://developers.trello.com/reference/#search>
+
+   
+    $loop->add( my $trello =
+        Net::Async::Trello->new( %cfg{qw(key secret token token_secret)}, ) );
+        $trello->search(card_fields =>['name','url','dateLastActivity'], query =>'Shopping List')->
+      then(
+        sub {
+            my (%result) = @_;
+            #print the url of the first card returned.
+            printf "Card %s url\n", $result{cards}->[0]->url;
+            Future->done;
+        }
+    )->get;
+
+Takes the arguments as shown in the Trello API documentation as named parameters.  The only compulsory argument is query which takes a string that is search for. 
+
+=over 4
+
+=item 
+
+=back
+
+Returns a Hash with keys matching the objects returned even if they are empty. 
+for the types except for options the values will be an array Reference of matching Net::Async::Trello::{type} 
+E.G.  Net::Async::Trello:Card, Net::Async::Trello:Board,  Net::Async::Trello:Member
+fot the options key it is a straight Hash Reference copy of the returned options value 
 
 =cut
 
+
 sub search {
-	my ($self, %args) = @_;
-	$self->http_get(
-		uri => $self->endpoint(
-            'search',
-            
-        ),
-	)->transform(
+    my ($self, %args) = @_;
+    my $uri =   URI->new($self->base_uri.'search');
+    my $query = $uri->query_form(\%args);
+    $self->http_get(
+        uri => $uri 
+    )->transform(
         done => sub {
-            Net::Async::Trello::Card->new(
-                %{ $_[0] },
-                trello => $self,
-            )
+            my ($results) = @_;
+            my %types; 
+            foreach my $type (keys(%{$results})) {
+                my $module_postfix = ucfirst(substr ($type, 0, -1));
+                $types{$type} = [];
+                if ($type eq 'options'){
+                    $types{options} = $results->{options};
+                    next;    
+                }
+                foreach my $result (@{$results->{$type}}) {
+                    my $module_name = 'Net::Async::Trello::'.$module_postfix;
+                    my $object =  $module_name->new(
+                        %{$result},
+                        trello => $self,
+                    );
+                    push @{$types{$type}}, $object;
+                }
+            }
+            return %types;
         }
     )
 }
+
 
 sub configure {
 	my ($self, %args) = @_;
